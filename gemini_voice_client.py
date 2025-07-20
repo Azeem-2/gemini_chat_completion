@@ -3,21 +3,48 @@ import openai
 import speech_recognition as sr
 import pyttsx3
 from dotenv import load_dotenv
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 
-def speak_text(text: str):
+# Global voice setup
+VOICE_ID = None
+
+def choose_voice() -> str:
+    engine = pyttsx3.init()
+    voices = engine.getProperty("voices")
+    
+    print("🗣️ Available Voices:")
+    for idx, voice in enumerate(voices):
+        print(f"{idx}: {voice.name} - {voice.languages} - {voice.id}")
+
+    while True:
+        try:
+            chosen_index = int(input("🎚️ Choose voice: 0 for David, 1 for Zira: "))
+            if chosen_index in [0, 1]:
+                return voices[chosen_index].id
+            else:
+                print("❌ Invalid input. Choose 0 or 1.")
+        except ValueError:
+            print("❌ Please enter a number.")
+
+def speak_text(text: str, voice_id: str):
     tts = pyttsx3.init()
-    tts.setProperty('rate', 170)
+    tts.setProperty("rate", 170)
+    tts.setProperty("voice", voice_id)
     tts.say(text)
     tts.runAndWait()
     tts.stop()
 
 def main():
+    global VOICE_ID
+
     load_dotenv()
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     if not GEMINI_API_KEY:
         raise ValueError("❌ GEMINI_API_KEY not found in .env")
 
+    VOICE_ID = choose_voice()
+
+    # Initialize Gemini client
     client = openai.OpenAI(
         api_key=GEMINI_API_KEY,
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -26,7 +53,7 @@ def main():
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
 
-    print("🎤 Gemini Voice Assistant (say 'exit' to stop)\n")
+    print("\n🎤 Gemini Voice Assistant (say 'exit' to stop)\n")
 
     while True:
         with mic as source:
@@ -42,7 +69,8 @@ def main():
                 print("👋 Exiting...")
                 break
 
-            resp = client.chat.completions.create(
+            # Send to Gemini
+            response = client.chat.completions.create(
                 model="gemini-2.5-flash",
                 messages=[
                     {"role": "system", "content": "You are a helpful voice assistant."},
@@ -50,11 +78,11 @@ def main():
                 ]
             )
 
-            reply = resp.choices[0].message.content
+            reply = response.choices[0].message.content
             print(f"🤖 Gemini: {reply}")
 
-            # Spawn TTS in separate process for each response
-            p = Process(target=speak_text, args=(reply,))
+            # Use a separate process for TTS with selected voice
+            p = Process(target=speak_text, args=(reply, VOICE_ID))
             p.start()
             p.join()
 
